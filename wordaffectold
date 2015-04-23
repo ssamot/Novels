@@ -1,0 +1,144 @@
+from xml.etree import ElementTree as ElementTree
+from nltk.corpus import wordnet as wn
+from nltk.corpus import WordNetCorpusReader, LazyCorpusLoader, CorpusReader
+import nltk
+
+def pos_sentences( raw ):
+    """ Segments the raw text into sentences, tokenizes them and
+        and assigns to each a POS tag
+    """
+    sentences = nltk.sent_tokenize(raw)
+    tokenized_sentences = [nltk.word_tokenize(sentence) for sentence in sentences]
+    tagged_sentences = [nltk.pos_tag(sentence) for sentence in tokenized_sentences]
+    return tagged_sentences
+
+
+def hierarchies():
+    hierarchy = {}
+    hf = "/home/ssamot/projects/github/wordnet-domains-sentiwords/wn-domains/wn-affect-1.1/a-hierarchy.xml"
+    tree = ElementTree.parse(hf)
+    root = tree.getroot()
+    for i, node in enumerate(root):
+        if("isa" in node.attrib):
+            name = node.attrib["name"]
+            isa = node.attrib["isa"]
+            if(name in hierarchy):
+                old_isa = list(hierarchy[name])
+                old_isa.append(isa)
+                ## remove doublicate items
+                old_isa = set(old_isa)
+                hierarchy[name] = tuple(old_isa)
+                print name, old_isa
+            else:
+                hierarchy[name] = (isa,)
+        #print i
+    return hierarchy
+
+
+
+def synlists():
+    synnet = {}
+    hf = "/home/ssamot/projects/github/wordnet-domains-sentiwords/wn-domains/wn-affect-1.1/a-synsets.xml"
+    tree = ElementTree.parse(hf)
+    root = tree.getroot()
+
+    WN16 = LazyCorpusLoader(
+    'wordnet-1.6/dict', WordNetCorpusReader,
+    LazyCorpusLoader('omw', CorpusReader, r'.*/wn-data-.*\.tab', encoding='utf8'))
+
+
+    root = root[0]
+    for i, node in enumerate(root):
+        if("categ" in node.attrib):
+            id = node.attrib["id"]
+            categ = node.attrib["categ"]
+            #n#05588321
+            #print id
+            ##ssid = 00673330-s
+            ssid = id[2:] + "-" + "n"
+            id = ssid
+            synset_16 = id2ss(id,WN16)
+            #print id
+            #print len(id)
+            synset_30 = _wn30_synsets_from_wn16_synset(synset_16)
+            id = str(synset_30.offset()).zfill(8) + "-" + synset_30.pos()
+            if(id in synnet):
+                old_isa = list(synnet[id])
+                old_isa.append(categ)
+                ## remove doublicate items
+                old_isa = set(old_isa)
+                synnet[id] = tuple(old_isa)
+                print categ, old_isa
+            else:
+                synnet[id] = (categ,)
+        #print i
+    return synnet
+
+
+def _wn30_synsets_from_wn16_synset(synset):
+    (word, p, index) = synset.name().split(".")
+    # ADJ_SAT -> ADJ: DO NOT EXIST ADJ_SAT in wordnet.POS_LIST
+    if p == 's': p = 'a'
+    synsets = wn.synsets(word, p)
+    if len(synsets) == 0: return
+
+    synset_sims = {}
+    for i in range(len(synsets)):
+        try:
+            synset_sims[i] = synset.wup_similarity(synsets[i])
+        except (RuntimeError, TypeError, NameError):
+            # Set similarity to 0 in case of RuntimeError
+            synset_sims[i] = 0
+    # Most similar synset index
+    index = sorted(synset_sims.items(), key=lambda x:x[1], reverse=True)[0][0]
+
+    return synsets[index]
+
+
+def id2ss(ID,mywn):
+    """Given a Synset ID (e.g. 01234567-n) return a synset"""
+    #print int(ID[:8])
+    #print str(ID[-1:])
+    return mywn._synset_from_pos_and_offset(str(ID[-1:]), int(ID[:8]))
+
+if __name__ == '__main__':
+    #print hierarchies()
+    #print len(hierarchies())
+    syns = synlists()
+    #print nltk.data.find('corpora/wordnet-1.6/dict')
+    ##WN16 = WordNetCorpusReader(nltk.data.find('corpora/wordnet-1.6/dict'))
+
+    h = hierarchies()
+
+    #
+    # for key,val in syns.iteritems():
+    #     #print key,val
+    #
+    #     #print type(synset_16)
+    #     #print id2ss(key)
+    #     synset_30 = _wn30_synsets_from_wn16_synset(synset_16)
+    #     print synset_16, synset_30, synset_30.offset()
+    #     if not synset_30:
+    #         print key, "missing"
+    #         exit()
+
+    raw = "Full of unfriendliness and not hate."
+    sentences = pos_sentences( raw )
+    for sentence in sentences:
+        print "original sentence: " + str(sentences) + "POS chunks: \n"
+        for pos in sentence:
+            #print "-"
+            #print pos
+            sslist = wn.synsets( pos[0] )
+            #print sslist
+            for ss in sslist:
+                #print ss
+                ssid = str(ss.offset()).zfill(8) + "-" + ss.pos()
+                #print ssid, len(synset2domains)
+                if ssid in syns: # not all synsets are in WordNet Domain.
+                    print ss, ssid, syns[ssid]
+
+                    for emotion in syns[ssid]:
+                        print h[emotion]
+
+
